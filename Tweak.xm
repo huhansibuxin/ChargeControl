@@ -324,7 +324,7 @@ static void periodicCleanup(void){
         if (wr && gPowerd) MSHookFunction(wr,(void*)hk_Set,(void**)&orig_SetCFProp);
         if (wrs && gPowerd) MSHookFunction(wrs,(void*)hk_SetProps,(void**)&orig_SetCFProps);
 
-        if ((gPowerd || gThermal) && !gPeriodicTimer){
+        if (!gPeriodicTimer){
             gPeriodicTimer=dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER,0,0,
                         dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND,0));
             dispatch_source_set_timer(gPeriodicTimer,dispatch_time(DISPATCH_TIME_NOW,2*NSEC_PER_SEC),
