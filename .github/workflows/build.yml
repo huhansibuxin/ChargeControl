@@ -2,59 +2,56 @@ name: Build ChargeControl
 
 on:
   push:
-    branches: ['*']
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: macos-14
     strategy:
-      fail-fast: false
       matrix:
-        scheme: [rootless, roothide]
-    env:
-      THEOS: ${{ github.workspace }}/theos
+        variant: [rootless, roothide]
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # rootless 用官方 theos；roothide 必须用 roothide 官方 fork 的 theos
+      # （github.com/roothide/theos），普通 theos 不认 roothide scheme
+      - name: Setup Theos (Rootless)
+        if: matrix.variant == 'rootless'
+        run: |
+          git clone --recurse-submodules https://github.com/theos/theos.git ${{ runner.temp }}/theos
+          find ${{ runner.temp }}/theos/bin -name "*.pl" -exec sed -i '' '1s|#!/usr/bin/perl|#!/usr/bin/env perl|' {} \;
+          echo "THEOS=${{ runner.temp }}/theos" >> $GITHUB_ENV
+          echo "THEOS_PACKAGE_SCHEME=rootless" >> $GITHUB_ENV
+
+      - name: Setup Theos (Roothide)
+        if: matrix.variant == 'roothide'
+        run: |
+          git clone --recurse-submodules https://github.com/roothide/theos.git ${{ runner.temp }}/theos
+          find ${{ runner.temp }}/theos/bin -name "*.pl" -exec sed -i '' '1s|#!/usr/bin/perl|#!/usr/bin/env perl|' {} \;
+          echo "THEOS=${{ runner.temp }}/theos" >> $GITHUB_ENV
+          echo "THEOS_PACKAGE_SCHEME=roothide" >> $GITHUB_ENV
+
       - name: Install dependencies
-        run: brew install dpkg ldid
-
-      - name: Set up Theos (rootless)
-        if: matrix.scheme == 'rootless'
         run: |
-          git clone --recursive https://github.com/theos/theos.git "$THEOS"
-          curl -sSL https://github.com/theos/sdks/archive/master.tar.gz -o sdks.tar.gz
-          mkdir -p "$THEOS/sdks"
-          tar -xf sdks.tar.gz
-          mv sdks-master/*.sdk "$THEOS/sdks/" || true
-          rm -f sdks.tar.gz
+          # 新版 Homebrew 默认要求 tap trust，未信任时 brew install 直接中断
+          export HOMEBREW_NO_REQUIRE_TAP_TRUST=1
+          brew install dpkg ldid
 
-      - name: Set up Theos (roothide)
-        if: matrix.scheme == 'roothide'
+      - name: Install SDK
         run: |
-          git clone --recursive https://github.com/roothide/theos.git "$THEOS"
-          curl -sSL https://github.com/theos/sdks/archive/master.tar.gz -o sdks.tar.gz
-          mkdir -p "$THEOS/sdks"
-          tar -xf sdks.tar.gz
-          mv sdks-master/*.sdk "$THEOS/sdks/" || true
-          rm -f sdks.tar.gz
+          cd ${{ runner.temp }}/theos/sdks
+          curl -sLO https://github.com/theos/sdks/archive/refs/heads/master.zip
+          unzip -q master.zip
+          mv sdks-master/iPhoneOS16.5.sdk .
+          rm -rf sdks-master master.zip
 
-      - name: Build package
-        run: |
-          if [ "${{ matrix.scheme }}" = "roothide" ]; then
-            make package SCHEME=roothide
-          else
-            make package
-          fi
+      - name: Build
+        run: make package
 
-      - name: List produced deb
-        run: ls -la packages/ || true
-
-      - name: Upload artifact
+      - name: Upload deb
         uses: actions/upload-artifact@v4
         with:
-          name: ChargeControl-${{ matrix.scheme }}
+          name: ChargeControl-${{ matrix.variant }}
           path: packages/*.deb
-          if-no-files-found: error
