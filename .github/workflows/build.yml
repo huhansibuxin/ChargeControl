@@ -1,0 +1,60 @@
+name: Build ChargeControl
+
+on:
+  push:
+    branches: ['*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        scheme: [rootless, roothide]
+    env:
+      THEOS: ${{ github.workspace }}/theos
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: brew install dpkg ldid
+
+      - name: Set up Theos (rootless)
+        if: matrix.scheme == 'rootless'
+        run: |
+          git clone --recursive https://github.com/theos/theos.git "$THEOS"
+          curl -sSL https://github.com/theos/sdks/archive/master.tar.gz -o sdks.tar.gz
+          mkdir -p "$THEOS/sdks"
+          tar -xf sdks.tar.gz
+          mv sdks-master/*.sdk "$THEOS/sdks/" || true
+          rm -f sdks.tar.gz
+
+      - name: Set up Theos (roothide)
+        if: matrix.scheme == 'roothide'
+        run: |
+          git clone --recursive https://github.com/roothide/theos.git "$THEOS"
+          curl -sSL https://github.com/theos/sdks/archive/master.tar.gz -o sdks.tar.gz
+          mkdir -p "$THEOS/sdks"
+          tar -xf sdks.tar.gz
+          mv sdks-master/*.sdk "$THEOS/sdks/" || true
+          rm -f sdks.tar.gz
+
+      - name: Build package
+        run: |
+          if [ "${{ matrix.scheme }}" = "roothide" ]; then
+            make package SCHEME=roothide
+          else
+            make package
+          fi
+
+      - name: List produced deb
+        run: ls -la packages/ || true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChargeControl-${{ matrix.scheme }}
+          path: packages/*.deb
+          if-no-files-found: error

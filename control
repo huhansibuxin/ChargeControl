@@ -1,11 +1,9 @@
-Package: com.huayuarc.cputhermal
-Name: CPU 解除温控
-Author: Huayuarc
-Description: 适配 iOS 15-17 与不同 iPhone/iPad 机型的温控管理插件。注入 thermalmonitord，支持解除温控、低功耗、CPU/GPU 功率策略及 /System/Library/ThermalMonitor 运行时配置补丁。
+Package: com.chargecontrol
+Name: ChargeControl
+Author: huhansibuxin
+Description: 限制充电到指定百分比（85/90/95/99）+ 强制满血快充（解除80%涓流/无视发热）。剥离自 CPUthermal，仅含充电两项功能。
 Depends: mobilesubstrate, preferenceloader
-Maintainer: Huayuarc
+Maintainer: huhansibuxin
 Section: Tweaks
-Icon: https://huayuarc.github.io/icon/cputhermal.png
-Sileodepiction: https://huayuarc.github.io/sileodepiction/CPUthermal/js.json
 Architecture: iphoneos-arm
-Version: 1.6.2-63
+Version: 0.1.0

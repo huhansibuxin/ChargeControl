@@ -4,10 +4,10 @@
 #import <signal.h>
 #import <string.h>
 #import <unistd.h>
-#import <CPUthermalPaths.h>
+#import "ChargeControlPaths.h"
 
-// ChargeLimiter 电量阈值核心移植：SmartBatteryAPI + 智能停充 + 停充自动禁流。
-// 不处理温度阈值、通知、统计、充电电流和附加动作。
+// 限制充电到指定百分比核心：SmartBatteryAPI + 智能停充 + 停充自动禁流。
+// 与「强制充电」(Tweak 注入 powerd) 互斥，请勿同开。
 static BOOL gOwnsInhibit = NO;
 static BOOL gOwnsInflowDisable = NO;
 static BOOL gOwnershipPreferSmart = YES;
@@ -24,22 +24,22 @@ static NSInteger IntegerPreference(NSDictionary *prefs, NSString *key, NSInteger
 }
 
 static void LoadOwnership(void) {
-    NSDictionary *prefs = CPUthermalReadPrefs() ?: @{};
-    gOwnsInhibit = [prefs[S("__smartChargeOwnsInhibit")] boolValue];
-    gOwnsInflowDisable = [prefs[S("__smartChargeOwnsInflowDisable")] boolValue];
-    id source = prefs[S("__smartChargeOwnershipPreferSmart")];
+    NSDictionary *prefs = ChargeControlReadPrefs() ?: @{};
+    gOwnsInhibit = [prefs[@"__ccOwnsInhibit"] boolValue];
+    gOwnsInflowDisable = [prefs[@"__ccOwnsInflowDisable"] boolValue];
+    id source = prefs[@"__ccOwnershipPreferSmart"];
     gOwnershipPreferSmart = [source respondsToSelector:@selector(boolValue)] ? [source boolValue] : YES;
 }
 
 static void SaveOwnership(void) {
-    NSMutableDictionary *prefs = CPUthermalReadMutablePrefs() ?: [NSMutableDictionary dictionary];
-    if (gOwnsInhibit) prefs[S("__smartChargeOwnsInhibit")] = @YES;
-    else [prefs removeObjectForKey:S("__smartChargeOwnsInhibit")];
-    if (gOwnsInflowDisable) prefs[S("__smartChargeOwnsInflowDisable")] = @YES;
-    else [prefs removeObjectForKey:S("__smartChargeOwnsInflowDisable")];
-    if (gOwnsInhibit || gOwnsInflowDisable) prefs[S("__smartChargeOwnershipPreferSmart")] = @(gOwnershipPreferSmart);
-    else [prefs removeObjectForKey:S("__smartChargeOwnershipPreferSmart")];
-    CPUthermalWritePrefs(prefs);
+    NSMutableDictionary *prefs = [ChargeControlReadMutablePrefs() ?: [NSMutableDictionary dictionary] mutableCopy];
+    if (gOwnsInhibit) prefs[@"__ccOwnsInhibit"] = @YES;
+    else [prefs removeObjectForKey:@"__ccOwnsInhibit"];
+    if (gOwnsInflowDisable) prefs[@"__ccOwnsInflowDisable"] = @YES;
+    else [prefs removeObjectForKey:@"__ccOwnsInflowDisable"];
+    if (gOwnsInhibit || gOwnsInflowDisable) prefs[@"__ccOwnershipPreferSmart"] = @(gOwnershipPreferSmart);
+    else [prefs removeObjectForKey:@"__ccOwnershipPreferSmart"];
+    ChargeControlWritePrefs(prefs);
 }
 
 static io_service_t BatteryService(BOOL preferSmart) {
@@ -61,10 +61,10 @@ static NSDictionary *BatteryProperties(io_service_t service) {
 }
 
 static BOOL AdapterConnected(NSDictionary *properties) {
-    NSDictionary *adapter = [properties[S("AdapterDetails")] isKindOfClass:[NSDictionary class]] ? properties[S("AdapterDetails")] : nil;
-    NSString *description = [adapter[S("Description")] isKindOfClass:[NSString class]] ? adapter[S("Description")] : nil;
-    if (adapter.count && ![description isEqualToString:S("batt")]) return YES;
-    return [properties[S("ExternalConnected")] boolValue] || [properties[S("ExternalChargeCapable")] boolValue];
+    NSDictionary *adapter = [properties[@"AdapterDetails"] isKindOfClass:[NSDictionary class]] ? properties[@"AdapterDetails"] : nil;
+    NSString *description = [adapter[@"Description"] isKindOfClass:[NSString class]] ? adapter[@"Description"] : nil;
+    if (adapter.count && ![description isEqualToString:@"batt"]) return YES;
+    return [properties[@"ExternalConnected"] boolValue] || [properties[@"ExternalChargeCapable"] boolValue];
 }
 
 static BOOL SetProperties(BOOL preferSmart, NSDictionary *properties) {
@@ -76,13 +76,13 @@ static BOOL SetProperties(BOOL preferSmart, NSDictionary *properties) {
 }
 
 static BOOL SetChargeInhibited(BOOL preferSmart, BOOL inhibited) {
-    BOOL ok = SetProperties(preferSmart, @{S("PredictiveChargingInhibit"):@(inhibited)});
+    BOOL ok = SetProperties(preferSmart, @{@"PredictiveChargingInhibit":@(inhibited)});
     if (ok) { if (inhibited) gOwnershipPreferSmart = preferSmart; gOwnsInhibit = inhibited; SaveOwnership(); }
     return ok;
 }
 
 static BOOL SetInflowEnabled(BOOL preferSmart, BOOL enabled) {
-    BOOL ok = SetProperties(preferSmart, @{S("ExternalConnected"):@(enabled)});
+    BOOL ok = SetProperties(preferSmart, @{@"ExternalConnected":@(enabled)});
     if (ok) { if (!enabled) gOwnershipPreferSmart = preferSmart; gOwnsInflowDisable = !enabled; SaveOwnership(); }
     return ok;
 }
@@ -94,19 +94,19 @@ static void RestoreOwnedState(void) {
 }
 
 static void EvaluateBattery(void) {
-    NSDictionary *prefs = CPUthermalReadPrefs() ?: @{};
-    BOOL enabled = BoolPreference(prefs, S("smartChargeEnabled"), NO);
-    BOOL preferSmart = BoolPreference(prefs, S("smartChargeUseSmartBatteryAPI"), YES);
-    BOOL disableInflow = BoolPreference(prefs, S("smartChargeDisableInflow"), NO);
+    NSDictionary *prefs = ChargeControlReadPrefs() ?: @{};
+    BOOL enabled = BoolPreference(prefs, @"limitChargeEnabled", NO);
+    BOOL preferSmart = BoolPreference(prefs, @"limitChargeUseSmartBatteryAPI", YES);
+    BOOL disableInflow = BoolPreference(prefs, @"limitChargeDisableInflow", NO);
     if ((gOwnsInhibit || gOwnsInflowDisable) && preferSmart != gOwnershipPreferSmart) RestoreOwnedState();
     if (!enabled) { RestoreOwnedState(); return; }
 
     io_service_t service = BatteryService(preferSmart);
     NSDictionary *properties = BatteryProperties(service);
     if (!properties) { if (service != IO_OBJECT_NULL) IOObjectRelease(service); return; }
-    NSInteger stopLevel = MAX(70, MIN(100, IntegerPreference(prefs, S("smartChargeStopLevel"), 80)));
+    NSInteger stopLevel = MAX(70, MIN(100, IntegerPreference(prefs, @"limitChargeLevel", 90)));
     NSInteger resumeLevel = MAX(5, stopLevel - 5);
-    NSInteger capacity = IntegerPreference(properties, S("CurrentCapacity"), -1);
+    NSInteger capacity = IntegerPreference(properties, @"CurrentCapacity", -1);
     BOOL connected = AdapterConnected(properties);
     IOObjectRelease(service);
 
@@ -116,7 +116,7 @@ static void EvaluateBattery(void) {
         if (disableInflow && !gOwnsInflowDisable) SetInflowEnabled(preferSmart, NO);
         if (!disableInflow && gOwnsInflowDisable) SetInflowEnabled(preferSmart, YES);
     } else if (capacity <= resumeLevel) {
-        // ChargeLimiter 顺序：先恢复输入，再恢复充电。
+        // 先恢复输入，再恢复充电。
         if (gOwnsInflowDisable) SetInflowEnabled(preferSmart, YES);
         if (gOwnsInhibit) SetChargeInhibited(preferSmart, NO);
     }
@@ -138,7 +138,7 @@ int main(int argc, char **argv) {
         LoadOwnership();
         if (argc > 1 && strcmp(argv[1], "reset") == 0) return ResetCharging() ? 0 : 2;
         signal(SIGTERM, SignalHandler); signal(SIGINT, SignalHandler); signal(SIGHUP, SignalHandler);
-        notify_register_dispatch(kCPUthermalSettingsChangedNotifC, &gNotifyToken, dispatch_get_main_queue(), ^(int token) {
+        notify_register_dispatch(kChargeControlSettingsChangedNotifC, &gNotifyToken, dispatch_get_main_queue(), ^(int token) {
             (void)token; @autoreleasepool { EvaluateBattery(); }
         });
         [NSTimer scheduledTimerWithTimeInterval:15.0 repeats:YES block:^(__unused NSTimer *timer) {
