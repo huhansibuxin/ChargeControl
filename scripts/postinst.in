@@ -1,6 +1,8 @@
 #!/bin/sh
 case "$1" in
 configure)
+# 清除上一版本诊断日志，保证本次测试从干净状态开始
+rm -f /var/mobile/ChargeControl/force.log 2>/dev/null || true
 # 重启被注入的守护，让强制充电 tweak 生效
 killall -9 powerd 2>/dev/null || true
 killall -q thermalmonitord 2>/dev/null || true
