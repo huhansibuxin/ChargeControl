@@ -22,7 +22,6 @@
 
 static const int SafeCurrentMA = 5000;
 static const int PeriodicSec   = 2;
-static int gToken = -1;
 
 static kern_return_t (*orig_SetCFProp)(io_registry_entry_t, CFStringRef, CFTypeRef) = NULL;
 static kern_return_t (*orig_SetCFProps)(io_registry_entry_t, CFTypeRef) = NULL;
@@ -34,7 +33,6 @@ static NSArray<NSString *> *kReasonKeys;
 static NSArray<NSString *> *kLimitKeys;
 static NSArray<NSString *> *kOptimKeys;   // 80% 优化充电/涓流停 相关布尔 → 清 NO
 static BOOL gPowerd = NO;
-static BOOL gThermal = NO;
 static uint64_t gLastBreakNS = 0;
 static dispatch_source_t gPeriodicTimer = nil;
 
@@ -309,8 +307,7 @@ static void periodicCleanup(void){
     dispatch_once(&once, ^{
         NSString *proc=[NSProcessInfo processInfo].processName;
         if ([proc isEqualToString:@"powerd"]) gPowerd=YES;
-        else if ([proc isEqualToString:@"thermalmonitord"]) gThermal=YES;
-        else return;
+        else if (![proc isEqualToString:@"thermalmonitord"]) return;
         initKeySets();
         logDiag(@"boot proc=%@ pid=%d", proc, (int)getpid());
         void *k=dlopen("/System/Library/Frameworks/IOKit.framework/IOKit",RTLD_NOW);
